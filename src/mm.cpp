@@ -1,3 +1,53 @@
+#include <Arduino.h>
+const byte Z_C=10, PWM = 11; 
+int val = 0;
+  
+void setup (){
+  
+  
+  
+  pinMode(Z_C,INPUT_PULLUP); //setup ZeroCross pinMode
+  pinMode(PWM,OUTPUT); // setup PWM pinMode
+  TCCR1A = 0; 
+  TCCR1B |= (1<<CS10); // prescaler 1
+  PCMSK0 |= (1<<PCINT2); // Select Pin change interrupt "D10"
+  PCICR |= (1<<PCIE0); 
+  TIMSK1 = (1<<OCIE1B) | (1<<OCIE1A);// enable OCR1A and OCR1B interrupt
+  
+
+}
+ISR(PCINT0_vect){
+  if(digitalRead(1)==1){
+    TCCR1B |= (1<<WGM12);//set CTC mode 
+  }
+   
+}
+
+ISR(TIMER1_COMPA_vect){
+  digitalWrite(PWM,1);
+}
+ISR(TIMER1_COMPB_vect){
+  digitalWrite(PWM,0);
+
+} 
+
+
+void loop(){
+
+  val = map(analogRead(0), 0, 1023, 8000, )
+  OCR1A = val;
+  OCR1B = OCR1A-400;  
+
+}
+ 
+ 
+ /////////////////////////////////////////////////////////////////////////////////////
+ 
+ 
+ 
+ 
+ 
+ 
  int time=0;
   time=constrain(time,0,1023);
   //setting up the power module
