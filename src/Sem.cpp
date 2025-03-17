@@ -12,7 +12,7 @@ void setup(){
 void loop(){
     
     if(digitalRead(Z_C)){
-        int val = map(analogRead(0),0,1023,50,9500);
+        int val = map(analogRead(0),0,1023,500,9500);
         delayMicroseconds(val);
         digitalWrite(PWM,1);
         delayMicroseconds(20);

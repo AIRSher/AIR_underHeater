@@ -1,4 +1,38 @@
 #include <Arduino.h>
+
+unsigned int Val = 0;
+
+void setup() {
+  
+  pinMode(13, OUTPUT);
+
+  TCCR1A = 0; // CTC mode OCR1A top
+  TCCR1B =  (1 << WGM12) | (1 << CS12) | (1 << CS10); // Prescaler 1024
+  TIMSK1 = (1 << OCIE1A) | (1 << OCIE1B);
+  OCR1A = 15622;
+  OCR1B = 7811; 
+}
+ISR(TIMER1_COMPA_vect) {
+  digitalWrite(13, 1);
+  Val = map(analogRead(0), 0 , 1023, 15622, 62499);
+
+}
+
+ISR(TIMER1_COMPB_vect) {
+  digitalWrite(13, 0);
+  
+}
+
+void loop() {
+  
+  OCR1A = Val; 
+
+}
+
+//////////////////////////////////////////////////////////////////////////////////////
+
+
+#include <Arduino.h>
 const byte Z_C=10, PWM = 11; 
 int val = 0;
   
