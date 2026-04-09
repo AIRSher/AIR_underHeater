@@ -13,7 +13,7 @@
 #define RST 8
 #define Termo 0
 
-//encoder announcement
+//dimmer announcement
 #define Z_C 2//pin of zero cross
 #define PWM 3
 
