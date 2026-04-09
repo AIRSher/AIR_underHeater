@@ -1,9 +1,16 @@
 //Program read values from temperature sensor 'CurTrmVl'. 
-//New values are entered using encoder 'NexTrmVal' 
-//If CurTrmVl < NexTrmVl then open semmistor, else close.
+//New values are entered using encoder 'SetPoint' 
+//If CurTrmVl < SetPoint then open semmistor, else close.
 
 
 #include <Arduino.h>
+//=============PID setup================//
+int Kp = 5.5, Ki = 3.0, Kd = 1.0; 
+int integral = 0, last_error = 0;
+unsigned long last_time;
+int output = 0; // Сделаем глобальной для симулятора
+//float virtual_temp = 25.0; 
+
 
 // pin announcement
 #define Data 13
@@ -13,11 +20,11 @@
 #define RST 8
 #define Termo 0
 
-//dimmer announcement
-#define Z_C 2//pin of zero cross
-#define PWM 3
+//encoder announcement
+#define Z_C 3//pin of zero cross
+#define PWM 2
 
-#define MAX_PERIOD_16 (1000000UL * 1024UL / F_CPU * 65536UL)	// 4194304 (0.24 Гц) на 16 МГц
+#define MAX_PERIOD_16 (1000000UL * 1024UL / F_CPU * 65536UL)  // 4194304 (0.24 Гц) на 16 МГц
 volatile int dimmer = 500;
 
 //simbols announcement//
@@ -62,7 +69,7 @@ unsigned long previousMillis = 0; // will store last time LED was updated
 const long interval = 1000;  // interval at which to blink (milliseconds)
 
 
-volatile int NexTrmVal = 60; // specified value of heater
+volatile int SetPoint = 40; // specified value of heater
 volatile bool encFlag = 0;  // turn counter
 volatile byte reset = 0, last = 0; 
 
@@ -71,8 +78,11 @@ volatile byte reset = 0, last = 0;
 
 
 void setup(){
-  Serial.begin(9600);
+  //Serial.begin(9600);
   //encoder pin modes
+
+  last_time = millis();//PID
+  
   PCICR |= (1<<PCIE2);// Enable Pin Change Interrupt control register
   PCMSK2 |= (1<<PCINT22);// Selected  d6 as interrupt pin
   PCMSK2 |= (1<<PCINT21); // Selected  d5 as interrupt pin
@@ -106,16 +116,32 @@ void setup(){
 ISR(PCINT2_vect){
   byte state = (PIND & 0b01100000) >> 5;  // D2 + D3
   if (reset && state == 0b11) {
-    int prevCount = NexTrmVal;
-    if (last == 0b01) NexTrmVal+=5;
-    else if (last == 0b10) NexTrmVal-=5;
-    if (prevCount != NexTrmVal) encFlag = 1;
+    int prevCount = SetPoint;
+    if (last == 0b01) SetPoint+=5;
+    else if (last == 0b10) SetPoint-=5;
+    if (prevCount != SetPoint) encFlag = 1;
     reset = 0;
   }
   if (!state) reset = 1;
   last = state;
 }
 
+
+// Наш массив-буфер в оперативной памяти
+// Индекс 0 - единицы, 1 - десятки, 2 - сотни
+int displayMemory[3]; 
+
+void updateDisplayMemory(int number) {
+    // 1. Получаем единицы (остаток от деления на 10)
+    displayMemory[0] = number % 10;
+    
+    // 2. Получаем десятки 
+    // (сначала делим на 10, чтобы убрать единицы, потом берем остаток)
+    displayMemory[1] = (number / 10) % 10;
+    
+    // 3. Получаем сотни
+    displayMemory[2] = (number / 100); 
+}
 
 void loop() {
     
@@ -135,28 +161,45 @@ void loop() {
   }
   
   
-  //========== Dimmer value ===============
-  if (NexTrmVal < CurTrmVl){
+/*  //========== Dimmer value ===============
+  if (SetPoint < CurTrmVl){
     dimmer+=5;
   }
-  else if (NexTrmVal> CurTrmVl){
+  else if (SetPoint> CurTrmVl){
     dimmer-=5;
-  }
+  }*/
+
+  //int current_temp = CurTrmVl;
+  
+  unsigned long now = millis(); // Real time
+  int dt = (now - last_time) / 1000; //delta T
+  if (dt <= 0) return;     
+  int error = SetPoint - CurTrmVl;
+
+  int P = Kp * error;
+  integral += error * dt;
+  if (integral > 100) integral = 100; // Ограничим интеграл
+  int I = Ki * integral;
+  int D = Kd * (error - last_error) / dt;
+ 
+  dimmer = P + I + D;   
   dimmer = constrain(dimmer, 500, 9300);
   
   
-
+  last_error = error;
+  last_time = now;
 
 
 
 //====== Data selection for sending to display ========
   int T=0;
+  static int T0 = T;
   bool delayFlag = false; // флаг задержки
   
   if (encFlag) {
-    NexTrmVal = constrain(NexTrmVal, 0, 300); // верхняя и нижняя границы
+    SetPoint = constrain(SetPoint, 0, 300); // верхняя и нижняя границы
     if (!delayFlag) { // если задержка не активирована
-      T = NexTrmVal;
+      T = SetPoint;
       delayFlag = true; // активируем задержку
       previousMillis = currentMillis; // сбрасываем таймер
     }
@@ -174,9 +217,16 @@ void loop() {
 
 
 //================ Sending value =================
-  byte hundreds = T / 100;           // Get hundred counts
+ /* byte hundreds = T / 100;           // Get hundred counts
   byte tens = (T/ 10) % 10;         // Get tens counts
-  byte units = T % 10;               // Get unit counts
+  byte units = T % 10;               // Get unit counts*/
+
+if(T != T0){ 
+  updateDisplayMemory(T);
+  T0 = T;
+}
+  
+
 
   byte AndOrd;//anodes number/order
   byte Digit;//rank
@@ -186,18 +236,18 @@ void loop() {
   for(AndOrd=0; AndOrd<3;AndOrd++){
 
     if(AndOrd == 0){
-      Digit=units;
+      Digit=displayMemory[0];
     } 
     else if(AndOrd == 1){
-      Digit=tens;
+      Digit=displayMemory[1];
     }
 
     else if(AndOrd == 2){
-      Digit=hundreds;
+      Digit=displayMemory[2];
     }
   
     digitalWrite(Latch_CL, HIGH); // Data latches
-    delay(1); // delay for effect seing 
+    delay(5); // delay for effect seing 
   
     shiftOut(Data, Shift_Cl, LSBFIRST,zr[AndOrd]);
     shiftOut(Data, Shift_Cl, LSBFIRST, num[Digit]);
@@ -208,7 +258,7 @@ void loop() {
       AndOrd=0;
     
   }}
-  Serial.println(dimmer);
+ // Serial.println(dimmer);
 }
 
 
@@ -255,25 +305,3 @@ ISR(TIMER1_COMPA_vect){
   TCNT1 = 0x00;
   
 }
-
-
-
-  
-  
-  
-  
-  
-  
-  
-
-
-
-
-
-
-
-
-
-
-
-
